@@ -1,0 +1,47 @@
+name: build
+
+# Verifies that both halves of the solution compile on every push and pull request.
+# Test stages are intentionally omitted for now.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        # Warnings are treated as errors so the build stays clean over time.
+        run: dotnet build --no-restore --configuration Release /warnaserror
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/WorkoutTracker.Web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/WorkoutTracker.Web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type check and build
+        run: npm run build

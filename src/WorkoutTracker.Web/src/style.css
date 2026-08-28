@@ -497,3 +497,252 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .summary-actions { flex-direction: column; }
   .calendar-week span { padding: 8px 2px; font-size: 8px; }
 }
+
+
+/* =====================================================================================
+   API-connected UI additions
+   Styles for components introduced when the app moved from local demo data to the real
+   API: sync status, charts, filters, calendar, tools and historical editing.
+   ===================================================================================== */
+
+/* Screen-reader-only text, used for chart table captions. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- Offline and sync status ---- */
+.sync-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.sync-banner.offline { border-color: var(--amber); color: var(--amber); }
+.sync-banner.error { border-color: var(--accent); color: var(--accent-strong); }
+.sync-banner.conflict { border-color: var(--purple); color: var(--purple); }
+.sync-banner small { margin-left: auto; color: var(--muted); }
+
+/* ---- Generic helpers ---- */
+.head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.link-button {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.link-button:hover { text-decoration: underline; }
+
+.muted { color: var(--muted-2); }
+.form-note.success { color: var(--green); }
+
+/* ---- Filters ---- */
+.filter-panel { margin-bottom: 16px; }
+.filter-panel > summary { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+.filter-panel > summary::-webkit-details-marker { display: none; }
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: end;
+  margin: 14px 0 18px;
+}
+
+/* ---- Charts ---- */
+.chart-block { margin-top: 6px; }
+.chart-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+
+/* Fixed height so the canvas has a stable box to render into. */
+.chart-canvas { position: relative; height: 220px; }
+.chart-canvas canvas { width: 100% !important; height: 100% !important; }
+
+.chart-table { width: 100%; margin-top: 14px; border-collapse: collapse; font-size: 0.82rem; }
+.chart-table th, .chart-table td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+.chart-table th { color: var(--muted); font-weight: 600; }
+
+/* ---- Muscle contribution bars ---- */
+.muscle-bar {
+  display: block;
+  width: 100%;
+  max-width: 190px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.muscle-bar i { display: block; height: 100%; border-radius: 999px; background: var(--lime); }
+
+/* ---- Exercise list rows ---- */
+.exercise-row { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
+.exercise-row:last-child { border-bottom: 0; }
+.exercise-row-link { display: flex; flex: 1; align-items: center; gap: 12px; padding: 12px 4px; min-width: 0; }
+.exercise-row-link > span:last-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.exercise-row-link strong { font-size: 0.94rem; }
+.exercise-row-link small { color: var(--muted); font-size: 0.78rem; }
+
+.exercise-instructions { margin: 0 0 18px; color: var(--muted); line-height: 1.6; }
+.exercise-note-display,
+.workout-note-display {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--accent);
+  background: var(--surface-2);
+  border-radius: 0 10px 10px 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.suggestion-panel { border-color: var(--amber); }
+.editing-hint { color: var(--amber); font-size: 0.82rem; }
+
+/* ---- Exercise history entries ---- */
+.history-entry { display: block; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.history-entry:last-child { border-bottom: 0; }
+.history-entry-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.history-entry-head small { color: var(--muted); font-size: 0.78rem; }
+.history-entry-sets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.history-entry-sets span {
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Set grids for templates and history ----
+   The active workout grid is defined above; these variants swap the column layout while
+   keeping the same row chrome. */
+.set-header.template-header,
+.set-row.template-row { grid-template-columns: 34px 1fr 62px 62px 72px 34px; }
+
+.set-header.history-header,
+.set-row.history-row { grid-template-columns: 34px 1fr 72px 62px 56px 34px; }
+
+.set-row.history-row > span { display: flex; align-items: center; font-variant-numeric: tabular-nums; }
+.set-type-label { color: var(--muted); font-size: 0.8rem; }
+
+/* Warmup sets are visually de-emphasised since they do not count toward records. */
+.set-row.warmup { opacity: 0.75; }
+
+/* A superset group is bracketed so the grouping is obvious while training. */
+.exercise-card.superset { border-left: 3px solid var(--purple); }
+
+/* ---- Calendar ---- */
+.calendar-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.calendar-head strong { font-size: 1.02rem; }
+
+.calendar-weekdays,
+.calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+
+.calendar-weekdays { margin-bottom: 8px; }
+.calendar-weekdays span { text-align: center; color: var(--muted-2); font-size: 0.72rem; letter-spacing: 0.06em; }
+
+.calendar-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  /* Square cells keep the grid stable across viewport widths. */
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.calendar-cell.empty { border: 0; background: none; cursor: default; }
+.calendar-cell.trained { border-color: var(--lime); }
+.calendar-cell.selected { background: var(--surface-3); border-color: var(--accent); }
+.calendar-dot { width: 5px; height: 5px; border-radius: 999px; background: var(--lime); }
+
+.schedule-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+.schedule-row:last-child { border-bottom: 0; }
+.schedule-row select { min-width: 150px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); color: var(--text); }
+
+/* ---- Tools: plate and warmup calculators ---- */
+.tool-row { display: flex; gap: 8px; margin-bottom: 14px; }
+.tool-row input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.plate-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.plate-chip {
+  padding: 7px 12px;
+  border: 1px solid var(--lime);
+  border-radius: 999px;
+  color: var(--lime);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Import preview ---- */
+.import-preview { margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.import-preview ul { margin: 10px 0; padding-left: 18px; color: var(--amber); font-size: 0.82rem; }
+.import-preview li { margin-bottom: 4px; }
+
+@media (max-width: 720px) {
+  .chart-canvas { height: 190px; }
+  .schedule-row { grid-template-columns: 1fr auto; }
+  .schedule-row select { min-width: 120px; }
+}
+
+
+/* ---- Progress photo gallery ---- */
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.photo-card { margin: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); overflow: hidden; }
+.photo-card img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; }
+
+.photo-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 3 / 4;
+  color: var(--muted-2);
+  background: var(--surface-3);
+}
+
+.photo-card figcaption { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 11px; }
+.photo-card figcaption > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.photo-card figcaption strong { font-size: 0.85rem; }
+.photo-card figcaption small { color: var(--muted); font-size: 0.74rem; }

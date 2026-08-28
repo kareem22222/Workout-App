@@ -14,5 +14,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../WorkoutTracker.Domain/WorkoutTracker.Domain.csproj" />
+    <!-- Infrastructure implements the abstractions the Application layer defines. -->
+    <ProjectReference Include="../WorkoutTracker.Application/WorkoutTracker.Application.csproj" />
   </ItemGroup>
 </Project>
