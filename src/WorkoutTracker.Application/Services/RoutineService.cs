@@ -95,7 +95,6 @@ public sealed class RoutineService(IAppDbContext db, IClock clock)
         routine.FolderId = request.FolderId;
         routine.UpdatedAt = clock.UtcNow;
 
-        db.RoutineSetTemplates.RemoveRange(routine.Exercises.SelectMany(x => x.Sets));
         db.RoutineExercises.RemoveRange(routine.Exercises);
         routine.Exercises = BuildExercises(request.Exercises);
 
@@ -168,7 +167,6 @@ public sealed class RoutineService(IAppDbContext db, IClock clock)
         }
         else
         {
-            db.RoutineSetTemplates.RemoveRange(routine.Exercises.SelectMany(x => x.Sets));
             db.RoutineExercises.RemoveRange(routine.Exercises);
             db.Routines.Remove(routine);
         }

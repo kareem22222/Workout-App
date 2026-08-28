@@ -18,9 +18,9 @@ public static class ExerciseEndpoints
             Guid? muscleId,
             Guid? equipmentId,
             string? category,
-            bool includeArchived,
+            bool? includeArchived,
             CancellationToken ct) =>
-            (await exercises.ListAsync(principal.UserId(), search, muscleId, equipmentId, category, includeArchived, ct)).ToHttp());
+            (await exercises.ListAsync(principal.UserId(), search, muscleId, equipmentId, category, includeArchived ?? false, ct)).ToHttp());
 
         group.MapGet("/{id:guid}", async (
             Guid id,

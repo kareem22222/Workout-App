@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, ArrowUp, Copy, Plus, Search, Trash2, X } from '@lucide/vue'
+import { ArrowDown, ArrowUp, Check, Copy, Plus, Search, Trash2, X } from '@lucide/vue'
 import { api } from '@/lib/api'
 import { ApiError } from '@/lib/http'
 import { useLibraryStore } from '@/stores/library'
@@ -49,13 +49,14 @@ const saving = ref(false)
 const error = ref<string | null>(null)
 const showPicker = ref(false)
 const search = ref('')
+const selectedExerciseIds = ref<string[]>([])
 
 const unit = computed(() => weightUnitLabel(session.weightUnit))
 const totalSets = computed(() => draft.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0))
 
 const pickerResults = computed(() => {
   const term = search.value.trim().toLowerCase()
-  return library.exercises.filter((exercise) => exercise.name.toLowerCase().includes(term)).slice(0, 60)
+  return library.exercises.filter((exercise) => exercise.name.toLowerCase().includes(term))
 })
 
 onMounted(async () => {
@@ -117,8 +118,32 @@ function addExercise(exercise: Exercise) {
     })),
   })
 
+}
+
+function openPicker() {
   search.value = ''
+  selectedExerciseIds.value = []
+  showPicker.value = true
+}
+
+function closePicker() {
   showPicker.value = false
+  selectedExerciseIds.value = []
+}
+
+function toggleExercise(id: string) {
+  selectedExerciseIds.value = selectedExerciseIds.value.includes(id)
+    ? selectedExerciseIds.value.filter((selectedId) => selectedId !== id)
+    : [...selectedExerciseIds.value, id]
+}
+
+function addSelectedExercises() {
+  const byId = new Map(library.exercises.map((exercise) => [exercise.id, exercise]))
+  for (const id of selectedExerciseIds.value) {
+    const exercise = byId.get(id)
+    if (exercise) addExercise(exercise)
+  }
+  closePicker()
 }
 
 function duplicateExercise(index: number) {
@@ -374,16 +399,16 @@ async function save() {
       <span>Add movements to build this routine.</span>
     </div>
 
-    <button class="add-exercise" @click="showPicker = true"><Plus :size="19" /> Add exercise</button>
+    <button class="add-exercise" @click="openPicker"><Plus :size="19" /> Add exercises</button>
 
-    <div v-if="showPicker" class="sheet-backdrop" @click.self="showPicker = false">
+    <div v-if="showPicker" class="sheet-backdrop" @click.self="closePicker">
       <section class="sheet">
         <header>
           <div>
             <span class="eyebrow">EXERCISE LIBRARY</span>
             <h2>Add exercise</h2>
           </div>
-          <button class="icon-button" aria-label="Close" @click="showPicker = false"><X /></button>
+          <button class="icon-button" aria-label="Close" @click="closePicker"><X /></button>
         </header>
 
         <div class="search-field compact">
@@ -391,7 +416,14 @@ async function save() {
           <input v-model="search" placeholder="Search exercises" aria-label="Search exercises" autofocus />
         </div>
 
-        <button v-for="exercise in pickerResults" :key="exercise.id" class="exercise-option" @click="addExercise(exercise)">
+        <button
+          v-for="exercise in pickerResults"
+          :key="exercise.id"
+          class="exercise-option"
+          :class="{ selected: selectedExerciseIds.includes(exercise.id) }"
+          :aria-pressed="selectedExerciseIds.includes(exercise.id)"
+          @click="toggleExercise(exercise.id)"
+        >
           <span class="exercise-glyph">{{ exercise.name.charAt(0) }}</span>
           <span>
             <strong>{{ exercise.name }}</strong>
@@ -400,10 +432,19 @@ async function save() {
               <template v-if="exercise.equipmentName"> - {{ exercise.equipmentName }}</template>
             </small>
           </span>
-          <Plus :size="19" />
+          <span class="exercise-select-indicator">
+            <Check v-if="selectedExerciseIds.includes(exercise.id)" :size="15" />
+          </span>
         </button>
 
         <p v-if="pickerResults.length === 0" class="small-empty">No exercises match your search.</p>
+
+        <footer class="exercise-picker-actions">
+          <span>{{ selectedExerciseIds.length }} selected</span>
+          <button class="btn btn-primary" :disabled="selectedExerciseIds.length === 0" @click="addSelectedExercises">
+            Add {{ selectedExerciseIds.length || '' }} exercise{{ selectedExerciseIds.length === 1 ? '' : 's' }}
+          </button>
+        </footer>
       </section>
     </div>
   </div>

@@ -18,7 +18,9 @@ public static class DependencyInjection
         var connectionString = configuration.GetConnectionString("Database")
             ?? throw new InvalidOperationException("ConnectionStrings:Database is required.");
 
-        services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddDbContext<AppDbContext>(options => options.UseNpgsql(
+            connectionString,
+            postgres => postgres.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)));
 
         // Application services resolve the context through its abstraction.
         services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<AppDbContext>());
@@ -26,8 +28,8 @@ public static class DependencyInjection
         services.AddScoped<IUserDirectory, IdentityUserDirectory>();
         services.AddSingleton<IClock, SystemClock>();
 
-        var mediaRoot = configuration["Storage:MediaRoot"]
-            ?? Path.Combine(AppContext.BaseDirectory, "media");
+        var mediaRoot = configuration["Storage:MediaRoot"];
+        if (string.IsNullOrWhiteSpace(mediaRoot)) mediaRoot = Path.Combine(AppContext.BaseDirectory, "media");
 
         services.AddSingleton<IMediaStorage>(provider =>
             new LocalMediaStorage(mediaRoot, provider.GetRequiredService<ILogger<LocalMediaStorage>>()));
