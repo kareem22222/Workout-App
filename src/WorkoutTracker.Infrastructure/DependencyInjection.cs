@@ -20,7 +20,13 @@ public static class DependencyInjection
 
         services.AddDbContext<AppDbContext>(options => options.UseNpgsql(
             connectionString,
-            postgres => postgres.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)));
+            postgres => postgres
+                .UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)
+                // Hosted Postgres drops idle connections and scale-to-zero tiers pause
+                // entirely, so transient failures are normal rather than exceptional.
+                // Safe here because no code path opens an explicit transaction, which is
+                // the one thing an execution strategy cannot retry.
+                .EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorCodesToAdd: null)));
 
         // Application services resolve the context through its abstraction.
         services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<AppDbContext>());

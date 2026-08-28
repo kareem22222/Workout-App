@@ -65,6 +65,45 @@ needed for local development.
 Register from the login screen. The first account to register is automatically granted the
 `Admin` role, which unlocks the admin screen at `/admin`.
 
+## Deploy to a single host
+
+`docker-compose.prod.yml` runs the whole stack — Postgres, the API, and Caddy serving the
+built PWA — on one machine. Caddy terminates TLS and reverse proxies `/api` to the API, so
+the app and its API share one origin and CORS is never involved.
+
+```bash
+cp deploy/.env.prod.example .env.prod
+# fill in POSTGRES_PASSWORD, JWT_KEY, WORKOUT_DOMAIN, ACME_EMAIL
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+
+Point an A record at the host before starting so Caddy can provision a certificate. To
+check things over plain HTTP by IP first, set `WORKOUT_DOMAIN=:80`. Register the first
+account immediately — it receives the `Admin` role — then set `ALLOW_REGISTRATION=false`
+and re-run the command to close sign-up.
+
+Only Caddy publishes ports. Postgres and the API are reachable on the internal Docker
+network alone, which is what makes `Proxy__TrustForwardedHeaders` safe to enable: the proxy
+is the sole possible source of requests, so `X-Forwarded-For` cannot be spoofed by a
+client. That header is what lets the auth rate limiter partition by real client IP instead
+of lumping every user into the proxy's single address.
+
+Two settings are off by default and switched on only in the compose file:
+
+| Setting | Effect |
+| --- | --- |
+| `Database:MigrateOnStartup` | Applies pending EF migrations at boot, retrying while the database wakes. Assumes a single API instance, since EF does not lock across processes. |
+| `Proxy:TrustForwardedHeaders` | Honours `X-Forwarded-For`/`-Proto`, and hands HTTPS redirection and HSTS to the proxy. |
+
+Three named volumes hold state: `postgres-data`, `media-data` (progress photos, which are
+files on disk rather than rows) and `caddy-data` (issued certificates). Back up the first
+two; losing `media-data` leaves photo metadata pointing at absent files.
+
+For free hosting, an Oracle Cloud Always Free ARM VM fits this compose file directly and
+has no cold starts or disk resets. The alternative — a static host plus a free container
+tier plus managed Postgres — has no persistent disk, so progress photos would not survive
+a redeploy unless `IMediaStorage` is pointed at object storage first.
+
 ## Configuration
 
 Secrets are never committed. `src/WorkoutTracker.Api/appsettings.json` ships with an empty

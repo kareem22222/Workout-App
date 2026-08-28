@@ -1,0 +1,82 @@
+# Single-host production stack: Postgres + API + Caddy (TLS, static PWA, /api proxy).
+#
+#   cp deploy/.env.prod.example .env.prod
+#   # fill in .env.prod, then:
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# Only Caddy publishes ports. Postgres and the API are reachable on the internal
+# network only, which is what makes trusting X-Forwarded-* headers safe.
+
+name: workouttracker
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: workouttracker
+      POSTGRES_USER: workout
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # The API waits on this so its first migration attempt does not race the database.
+      test: ["CMD-SHELL", "pg_isready -U workout -d workouttracker"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: .
+      dockerfile: src/WorkoutTracker.Api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Database: >-
+        Host=postgres;Port=5432;Database=workouttracker;Username=workout;Password=${POSTGRES_PASSWORD}
+      Jwt__Key: ${JWT_KEY:?JWT_KEY is required and must be at least 32 characters}
+      Jwt__Issuer: WorkoutTracker
+      Jwt__Audience: WorkoutTracker.Web
+      Auth__AllowRegistration: ${ALLOW_REGISTRATION:-true}
+      # Container deployment has no separate place to run the EF CLI.
+      Database__MigrateOnStartup: "true"
+      # Caddy terminates TLS and is the only possible source of requests.
+      Proxy__TrustForwardedHeaders: "true"
+      Storage__MediaRoot: /var/lib/workouttracker/media
+      # Same-origin through Caddy, so the CORS allow-list is never consulted. Kept
+      # accurate anyway so nothing depends on the localhost default.
+      Cors__AllowedOrigins__0: https://${WORKOUT_DOMAIN}
+    volumes:
+      # Progress photos are files on disk; without this volume they die with the container.
+      - media-data:/var/lib/workouttracker/media
+
+  web:
+    build:
+      context: src/WorkoutTracker.Web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      # A real hostname pointed at this server enables automatic HTTPS.
+      # Use the literal value ":80" to serve plain HTTP by IP before DNS is ready.
+      WORKOUT_DOMAIN: ${WORKOUT_DOMAIN:?WORKOUT_DOMAIN is required (use :80 for plain HTTP by IP)}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Persisting /data keeps issued certificates across restarts, which avoids
+      # re-requesting them and running into Let's Encrypt rate limits.
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  postgres-data:
+  media-data:
+  caddy-data:
+  caddy-config:

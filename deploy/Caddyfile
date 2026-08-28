@@ -1,0 +1,52 @@
+# Caddy serves the built PWA and reverse proxies /api to the API container.
+# Both live on one origin, so API requests are same-site and CORS never applies.
+#
+# WORKOUT_DOMAIN must be a real hostname pointed at this server for automatic HTTPS.
+# Set it to the literal :80 to serve plain HTTP by IP before DNS is ready.
+{
+	email {$ACME_EMAIL:admin@example.com}
+}
+
+{$WORKOUT_DOMAIN::80} {
+	encode zstd gzip
+
+	# Named matchers must be declared at site scope, not inside a handle block.
+	# Vite emits content-hashed filenames under /assets, so those can be cached hard.
+	@immutable path /assets/*
+	# These gate every update. If cached, a client could pin itself to an old
+	# service worker indefinitely and never receive a new release.
+	@revalidate path / /index.html /sw.js /manifest.webmanifest
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	header @immutable Cache-Control "public, max-age=31536000, immutable"
+	header @revalidate Cache-Control "no-cache"
+
+	# Matched first so API calls never fall through to the SPA's index.html rewrite.
+	handle /api/* {
+		reverse_proxy api:8080 {
+			# Caddy sets X-Forwarded-For/Proto/Host automatically. The API trusts them
+			# (Proxy__TrustForwardedHeaders) so rate limiting sees real client IPs.
+			health_uri /health
+			health_interval 30s
+		}
+	}
+
+	handle {
+		root * /srv
+		# Client-side routes must return the app shell rather than a 404.
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

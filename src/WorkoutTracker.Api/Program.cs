@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -45,6 +46,25 @@ try
     }
 
     builder.Services.AddSingleton(jwtOptions);
+
+    // True only when the API sits behind a TLS-terminating reverse proxy (the container
+    // deployment). Off by default: trusting X-Forwarded-* from an arbitrary caller would
+    // let a client spoof its own IP and defeat the auth rate limiter below.
+    var behindProxy = builder.Configuration.GetValue("Proxy:TrustForwardedHeaders", false);
+
+    if (behindProxy)
+    {
+        builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+            // The proxy's address on a container network is assigned dynamically, so it
+            // cannot be pinned here. This is safe only because the API port is never
+            // published to the host: the proxy is the sole possible source of requests.
+            options.KnownIPNetworks.Clear();
+            options.KnownProxies.Clear();
+        });
+    }
 
     // Persistence, use-case services and provider abstractions.
     builder.Services.AddWorkoutTracker(builder.Configuration);
@@ -173,6 +193,13 @@ try
     // Pipeline
     // ---------------------------------------------------------------------------------
 
+    // Must run before anything that inspects the scheme or the client IP, so request
+    // logs and the rate limiter both see the real caller rather than the proxy.
+    if (behindProxy)
+    {
+        app.UseForwardedHeaders();
+    }
+
     app.UseSerilogRequestLogging(options =>
     {
         options.GetLevel = (httpContext, _, exception) =>
@@ -227,8 +254,11 @@ try
     {
         app.MapOpenApi();
     }
-    else
+    else if (!behindProxy)
     {
+        // When a reverse proxy terminates TLS it already redirects and sets HSTS.
+        // Doing it here too would redirect to an internal hostname the client cannot
+        // reach, and would break plain-HTTP access before a domain is configured.
         app.UseHttpsRedirection();
         app.UseHsts();
     }
@@ -250,6 +280,55 @@ try
     app.MapDashboardEndpoints();
     app.MapDataEndpoints();
     app.MapAdminEndpoints();
+
+    // Apply pending EF migrations at boot. Opt-in, because on a developer machine the
+    // schema is managed with `dotnet ef database update` and an implicit migration would
+    // be surprising. Enable it for container deployments, where there is no separate
+    // place to run the CLI.
+    //
+    // This assumes a SINGLE API instance. EF does not lock across processes, so two
+    // instances starting together could race on the migration history table. Run
+    // migrations as a one-off step instead before scaling out.
+    if (builder.Configuration.GetValue("Database:MigrateOnStartup", false))
+    {
+        const int maxAttempts = 10;
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                using var scope = app.Services.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
+
+                if (pending.Count == 0)
+                {
+                    Log.Information("Database schema is up to date.");
+                }
+                else
+                {
+                    Log.Information("Applying {Count} pending migration(s): {Migrations}.", pending.Count, pending);
+                    await db.Database.MigrateAsync();
+                    Log.Information("Migrations applied.");
+                }
+
+                break;
+            }
+            catch (Exception exception) when (attempt < maxAttempts)
+            {
+                // The database container or a scale-to-zero managed instance may still be
+                // waking up. Back off and retry rather than crash-looping the container.
+                Log.Warning(
+                    exception,
+                    "Migration attempt {Attempt}/{Max} failed. Retrying in 3s.",
+                    attempt,
+                    maxAttempts);
+
+                await Task.Delay(TimeSpan.FromSeconds(3));
+            }
+        }
+    }
 
     // Ensure the admin role exists so the first registration can be promoted. A database
     // that is briefly unavailable at boot must not stop the API from starting; the role is
