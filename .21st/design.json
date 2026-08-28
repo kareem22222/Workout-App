@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "project": {
+    "name": "Form Workout Tracker",
+    "productType": "mobile-first workout logging PWA",
+    "stack": ["Vue 3", "TypeScript", "Vite", "Pinia", "Vue Router", "Tailwind CSS"]
+  },
+  "sources": {
+    "tokens": [],
+    "components": [],
+    "assets": [],
+    "instructions": []
+  },
+  "design": {
+    "colorMode": "dark-first",
+    "colors": { "background": "#0b0d0f", "surface": "#121518", "accent": "#ff5b35", "text": "#f5f6f7" },
+    "typography": { "family": "Inter/system sans", "headings": "compact, bold, negative tracking" },
+    "spacing": { "density": "compact during workout, relaxed on dashboard" },
+    "radius": { "control": "10-12px", "card": "18px" },
+    "shadows": {},
+    "motion": {},
+    "density": "compact"
+  },
+  "components": {
+    "installed": [],
+    "preferredPrimitives": [],
+    "patterns": []
+  },
+  "constraints": {
+    "must": ["Mobile-first active workout", "Large one-hand completion targets", "Previous set values remain visible", "Dark mode is first-class"],
+    "avoid": ["Strong branding or proprietary assets", "Decorative gradients", "Horizontal scrolling in set entry", "Excessive card nesting"]
+  },
+  "decisions": [
+    { "decision": "Use a compact dark training interface with a warm coral action color", "reason": "Matches the selected low-distraction reference direction while remaining visually distinct" },
+    { "decision": "Use a desktop sidebar and mobile bottom navigation", "reason": "Keeps primary destinations thumb-reachable and scales cleanly to larger screens" }
+  ],
+  "evidence": [],
+  "generatedAt": "2026-08-28T09:26:54.029Z"
+}
