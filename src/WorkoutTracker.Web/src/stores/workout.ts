@@ -24,7 +24,7 @@ import { useSessionStore } from './session'
 /** How long to coalesce rapid edits before saving. Keeps set entry responsive. */
 const SAVE_DEBOUNCE_MS = 900
 
-export type SyncState = 'idle' | 'saving' | 'offline' | 'error' | 'conflict'
+export type SyncState = 'idle' | 'saving' | 'offline' | 'synced' | 'error' | 'conflict'
 
 /**
  * Active workout state.
@@ -40,6 +40,7 @@ export const useWorkoutStore = defineStore('workout', () => {
   const loading = ref(false)
   const syncState = ref<SyncState>('idle')
   const syncMessage = ref<string | null>(null)
+  const serverConflict = ref<WorkoutSession | null>(null)
   const pendingCount = ref(0)
 
   /** Absolute end timestamp so a backgrounded tab still reports the correct time (spec 7.5). */
@@ -468,9 +469,8 @@ export const useWorkoutStore = defineStore('workout', () => {
 
         if (exception instanceof ApiError && exception.isConflict) {
           syncState.value = 'conflict'
-          syncMessage.value = exception.message
-          // Never silently overwrite newer server data (spec 13.2).
-          if (exception.conflict) applyServerState(exception.conflict as WorkoutSession)
+          syncMessage.value = 'This workout changed on another device. Reload the server version before continuing.'
+          serverConflict.value = (exception.conflict as WorkoutSession | undefined) ?? null
           return
         }
 
@@ -531,13 +531,18 @@ export const useWorkoutStore = defineStore('workout', () => {
       if (entry.id === undefined) continue
 
       try {
-        // Version 0 lets the server accept the replay as an adoption of client state
-        // rather than failing on a version the client could not have known.
-        const updated = await api.workouts.update(entry.workoutId, { ...entry.request, version: 0 })
+        const updated = await api.workouts.update(entry.workoutId, entry.request)
         await removeFromOutbox(entry.id)
         if (workout.value?.id === updated.id) applyServerState(updated)
       } catch (exception) {
         if (exception instanceof ApiError && exception.isNetworkError) break
+
+        if (exception instanceof ApiError && exception.isConflict) {
+          syncState.value = 'conflict'
+          syncMessage.value = 'Queued changes conflict with a newer server version. Reload the server version to continue.'
+          serverConflict.value = (exception.conflict as WorkoutSession | undefined) ?? null
+          break
+        }
 
         // A permanent failure must not block the queue forever.
         await removeFromOutbox(entry.id)
@@ -547,10 +552,31 @@ export const useWorkoutStore = defineStore('workout', () => {
     }
 
     pendingCount.value = await outboxSize()
-    if (pendingCount.value === 0 && syncState.value === 'offline') {
-      syncState.value = 'idle'
-      syncMessage.value = null
+    if (pendingCount.value === 0 && entries.length > 0) {
+      syncState.value = 'synced'
+      syncMessage.value = 'Offline workout changes synced.'
+      window.setTimeout(() => {
+        if (syncState.value === 'synced') {
+          syncState.value = 'idle'
+          syncMessage.value = null
+        }
+      }, 2500)
     }
+  }
+
+  /** Discards conflicted local edits only after the user explicitly chooses server data. */
+  async function reloadServerVersion() {
+    if (!serverConflict.value) return
+
+    workout.value = serverConflict.value
+    serverConflict.value = null
+    for (const entry of await readOutbox()) {
+      if (entry.id !== undefined && entry.workoutId === workout.value.id) await removeFromOutbox(entry.id)
+    }
+    await cacheActiveWorkout(workout.value)
+    pendingCount.value = await outboxSize()
+    syncState.value = 'idle'
+    syncMessage.value = null
   }
 
   async function finish(notes?: string | null) {
@@ -558,8 +584,23 @@ export const useWorkoutStore = defineStore('workout', () => {
 
     await saveNow()
 
+    const improvedExercises = workout.value.exercises.flatMap((exercise) => {
+      const improved = exercise.sets
+        .filter((set) => set.completed && set.type !== 'Warmup' && set.previous &&
+          (set.weight > set.previous.weight || (set.weight === set.previous.weight && set.reps > set.previous.reps)))
+        .sort((a, b) => b.weight - a.weight || b.reps - a.reps)[0]
+      return improved?.previous ? [{
+        exerciseId: exercise.exerciseId,
+        exerciseName: exercise.exerciseName,
+        weightKg: improved.weight,
+        reps: improved.reps,
+        previousWeightKg: improved.previous.weight,
+        previousReps: improved.previous.reps,
+      }] : []
+    })
+
     try {
-      const completion = await api.workouts.finish(workout.value.id, notes)
+      const completion = { ...await api.workouts.finish(workout.value.id, notes), improvedExercises }
       workout.value = null
       restEndsAt.value = null
       restPaused.value = 0
@@ -593,6 +634,7 @@ export const useWorkoutStore = defineStore('workout', () => {
     loading,
     syncState,
     syncMessage,
+    serverConflict,
     pendingCount,
     restEndsAt,
     restPaused,
@@ -622,6 +664,7 @@ export const useWorkoutStore = defineStore('workout', () => {
     queueSave,
     saveNow,
     flushOutbox,
+    reloadServerVersion,
     finish,
     cancel,
     startTicking,

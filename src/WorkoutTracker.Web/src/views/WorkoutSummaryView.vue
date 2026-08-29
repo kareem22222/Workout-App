@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { Award, Clock3, Dumbbell, Repeat, TrendingUp } from '@lucide/vue'
 import { useSessionStore } from '@/stores/session'
-import { describeRecord, formatDuration, formatVolume, weightUnitLabel } from '@/lib/format'
+import { describeRecord, formatDuration, formatVolume, formatWeight, weightUnitLabel } from '@/lib/format'
 import type { WorkoutCompletion } from '@/lib/types'
 
 const session = useSessionStore()
@@ -95,6 +95,28 @@ const maxMuscleScore = computed(() => Math.max(1, ...topMuscles.value.map((muscl
           </span>
           <strong>{{ describeRecord(record.type, record.value, record.atWeight, session.weightUnit).value }}</strong>
         </div>
+      </section>
+
+      <section v-if="completion.improvedExercises?.length" class="panel">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">IMPROVED TODAY</span>
+            <h2>Progress from last time</h2>
+          </div>
+          <span class="stat-icon lime"><TrendingUp :size="19" /></span>
+        </div>
+        <RouterLink
+          v-for="exercise in completion.improvedExercises"
+          :key="exercise.exerciseId"
+          :to="`/exercises/${exercise.exerciseId}`"
+          class="activity-row"
+        >
+          <span>
+            <strong>{{ exercise.exerciseName }}</strong>
+            <small>Previous {{ formatWeight(exercise.previousWeightKg, session.weightUnit) }} × {{ exercise.previousReps }}</small>
+          </span>
+          <strong>{{ formatWeight(exercise.weightKg, session.weightUnit) }} × {{ exercise.reps }}</strong>
+        </RouterLink>
       </section>
 
       <section v-if="topMuscles.length > 0" class="panel">

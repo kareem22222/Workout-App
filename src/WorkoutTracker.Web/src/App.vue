@@ -58,7 +58,7 @@ onMounted(() => window.addEventListener('online', handleOnline))
 onUnmounted(() => window.removeEventListener('online', handleOnline))
 
 const showSyncBanner = computed(
-  () => workouts.syncState === 'offline' || workouts.syncState === 'error' || workouts.syncState === 'conflict',
+  () => workouts.syncState === 'offline' || workouts.syncState === 'synced' || workouts.syncState === 'error' || workouts.syncState === 'conflict',
 )
 </script>
 

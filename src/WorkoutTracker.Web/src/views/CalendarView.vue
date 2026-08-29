@@ -5,11 +5,15 @@ import { api } from '@/lib/api'
 import { ApiError } from '@/lib/http'
 import { useLibraryStore } from '@/stores/library'
 import { useSessionStore } from '@/stores/session'
+import { useWorkoutStore } from '@/stores/workout'
+import { useRouter } from 'vue-router'
 import { dayIndex, dayNames, formatVolume, weightUnitLabel } from '@/lib/format'
 import type { WorkoutSummaryRow } from '@/lib/types'
 
 const session = useSessionStore()
 const library = useLibraryStore()
+const workouts = useWorkoutStore()
+const router = useRouter()
 
 const cursor = ref(new Date())
 const days = ref<Record<string, WorkoutSummaryRow[]>>({})
@@ -55,6 +59,11 @@ const grid = computed(() => {
 })
 
 const selectedWorkouts = computed(() => (selectedDate.value ? days.value[selectedDate.value] ?? [] : []))
+const selectedSchedule = computed(() => {
+  if (!selectedDate.value) return null
+  const jsDay = new Date(`${selectedDate.value}T12:00:00`).getDay()
+  return scheduleFor((jsDay + 6) % 7)
+})
 
 const trainedDayCount = computed(() => Object.keys(days.value).length)
 
@@ -111,6 +120,13 @@ async function clearSchedule(id: string) {
 
 function scheduleFor(dayOfWeekIndex: number) {
   return library.schedules.find((schedule) => dayIndex(schedule.dayOfWeek) === dayOfWeekIndex) ?? null
+}
+
+async function startScheduled() {
+  if (!selectedSchedule.value) return
+  const result = await workouts.start({ routineId: selectedSchedule.value.routineId })
+  if (result.ok || result.resumed) await router.push('/workout')
+  else error.value = result.message ?? 'Unable to start the scheduled workout.'
 }
 </script>
 
@@ -182,6 +198,11 @@ function scheduleFor(dayOfWeekIndex: number) {
       </RouterLink>
 
       <p v-if="selectedWorkouts.length === 0" class="small-empty">Nothing logged on this day.</p>
+      <div v-if="selectedSchedule" class="scheduled-card">
+        <span><small>SCHEDULED</small><strong>{{ selectedSchedule.routineName }}</strong></span>
+        <button class="btn btn-primary" @click="startScheduled">Start routine</button>
+      </div>
+      <p v-else-if="selectedWorkouts.length === 0" class="form-note">Rest day</p>
     </section>
 
     <section class="panel">

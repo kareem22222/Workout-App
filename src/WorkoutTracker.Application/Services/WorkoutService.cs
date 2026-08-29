@@ -78,8 +78,20 @@ public sealed class WorkoutService(
             .AsNoTracking()
             .ToListAsync(ct);
 
+        var sessionIds = sessions.Select(x => x.Id).ToList();
+        var recordCounts = await db.PersonalRecords
+            .Where(x => x.OwnerId == ownerId && sessionIds.Contains(x.WorkoutSessionId))
+            .GroupBy(x => x.WorkoutSessionId)
+            .Select(group => new { WorkoutId = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(x => x.WorkoutId, x => x.Count, ct);
+
+        var rows = sessions.Select(x => x.ToSummaryRow() with
+        {
+            PersonalRecordCount = recordCounts.GetValueOrDefault(x.Id)
+        }).ToList();
+
         return Result<PagedResult<WorkoutSummaryRowDto>>.Ok(new PagedResult<WorkoutSummaryRowDto>(
-            sessions.Select(x => x.ToSummaryRow()).ToList(), page, pageSize, total));
+            rows, page, pageSize, total));
     }
 
     /// <summary>

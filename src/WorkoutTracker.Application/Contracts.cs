@@ -195,7 +195,8 @@ public sealed record WorkoutSummaryRowDto(
     decimal TotalVolume,
     int CompletedSets,
     int ExerciseCount,
-    IReadOnlyList<string> ExerciseNames);
+    IReadOnlyList<string> ExerciseNames,
+    int PersonalRecordCount = 0);
 
 public sealed record StartWorkoutRequest(Guid? RoutineId, string? Title, Guid? CopyFromWorkoutId);
 

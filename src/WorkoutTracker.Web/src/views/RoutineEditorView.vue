@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { ApiError } from '@/lib/http'
 import { useLibraryStore } from '@/stores/library'
 import { useSessionStore } from '@/stores/session'
-import { setTypeCycle, setTypeName, weightUnitLabel } from '@/lib/format'
+import { displayToKg, kgToDisplay, setTypeCycle, setTypeName, weightUnitLabel } from '@/lib/format'
 import type { Exercise, SaveRoutineRequest, SupersetKind, WorkoutSetType } from '@/lib/types'
 
 /** Editable set template row. */
@@ -49,14 +49,29 @@ const saving = ref(false)
 const error = ref<string | null>(null)
 const showPicker = ref(false)
 const search = ref('')
+const muscleFilter = ref('')
+const equipmentFilter = ref('')
+const sourceFilter = ref<'all' | 'default' | 'custom'>('all')
 const selectedExerciseIds = ref<string[]>([])
+const draggedExerciseIndex = ref<number | null>(null)
+const recentExerciseIds = ref<string[]>(JSON.parse(localStorage.getItem('recentExercises') ?? '[]'))
 
 const unit = computed(() => weightUnitLabel(session.weightUnit))
 const totalSets = computed(() => draft.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0))
 
 const pickerResults = computed(() => {
   const term = search.value.trim().toLowerCase()
-  return library.exercises.filter((exercise) => exercise.name.toLowerCase().includes(term))
+  const present = new Set(draft.exercises.map((exercise) => exercise.exerciseId))
+  return library.exercises
+    .filter((exercise) => {
+      const haystack = [exercise.name, exercise.equipmentName, exercise.category, ...exercise.muscles.map((muscle) => muscle.muscleName)].join(' ').toLowerCase()
+      return !present.has(exercise.id)
+        && haystack.includes(term)
+        && (!muscleFilter.value || exercise.muscles.some((muscle) => muscle.muscleId === muscleFilter.value))
+        && (!equipmentFilter.value || exercise.equipmentId === equipmentFilter.value)
+        && (sourceFilter.value === 'all' || exercise.isCustom === (sourceFilter.value === 'custom'))
+    })
+    .sort((a, b) => recentExerciseIds.value.indexOf(b.id) - recentExerciseIds.value.indexOf(a.id) || a.name.localeCompare(b.name))
 })
 
 onMounted(async () => {
@@ -66,6 +81,7 @@ onMounted(async () => {
     await Promise.all([
       library.exercises.length === 0 ? library.loadExercises() : Promise.resolve(),
       library.routines.length === 0 ? library.loadRoutines() : Promise.resolve(),
+      library.loadReference(),
     ])
 
     if (routineId.value) await loadExisting(routineId.value)
@@ -122,6 +138,9 @@ function addExercise(exercise: Exercise) {
 
 function openPicker() {
   search.value = ''
+  muscleFilter.value = ''
+  equipmentFilter.value = ''
+  sourceFilter.value = 'all'
   selectedExerciseIds.value = []
   showPicker.value = true
 }
@@ -143,7 +162,14 @@ function addSelectedExercises() {
     const exercise = byId.get(id)
     if (exercise) addExercise(exercise)
   }
+  recentExerciseIds.value = [...selectedExerciseIds.value, ...recentExerciseIds.value.filter((id) => !selectedExerciseIds.value.includes(id))].slice(0, 12)
+  localStorage.setItem('recentExercises', JSON.stringify(recentExerciseIds.value))
   closePicker()
+}
+
+function setTargetWeight(set: DraftSet, event: Event) {
+  const raw = (event.target as HTMLInputElement).value
+  set.targetWeight = raw === '' ? null : displayToKg(Number(raw), session.weightUnit)
 }
 
 function duplicateExercise(index: number) {
@@ -167,6 +193,14 @@ function move(index: number, direction: -1 | 1) {
 
   const [moved] = draft.exercises.splice(index, 1)
   draft.exercises.splice(target, 0, moved!)
+}
+
+function dropExercise(targetIndex: number) {
+  const sourceIndex = draggedExerciseIndex.value
+  draggedExerciseIndex.value = null
+  if (sourceIndex === null || sourceIndex === targetIndex) return
+  const [moved] = draft.exercises.splice(sourceIndex, 1)
+  draft.exercises.splice(targetIndex, 0, moved!)
 }
 
 function addSet(exercise: DraftExercise) {
@@ -302,6 +336,11 @@ async function save() {
       :key="exercise.key"
       class="exercise-card"
       :class="{ superset: exercise.supersetGroup !== null }"
+      draggable="true"
+      @dragstart="draggedExerciseIndex = exerciseIndex"
+      @dragend="draggedExerciseIndex = null"
+      @dragover.prevent
+      @drop="dropExercise(exerciseIndex)"
     >
       <header>
         <div>
@@ -374,12 +413,13 @@ async function save() {
           aria-label="Top of rep range"
         />
         <input
-          v-model.number="set.targetWeight"
+          :value="set.targetWeight === null ? '' : kgToDisplay(set.targetWeight, session.weightUnit)"
           type="number"
           min="0"
           step="0.5"
           placeholder="-"
           :aria-label="`Target weight in ${unit}`"
+          @change="setTargetWeight(set, $event)"
         />
         <button
           class="icon-button danger-text"
@@ -416,6 +456,20 @@ async function save() {
           <input v-model="search" placeholder="Search exercises" aria-label="Search exercises" autofocus />
         </div>
 
+        <div class="picker-filters">
+          <select v-model="muscleFilter" aria-label="Filter by muscle">
+            <option value="">All muscles</option>
+            <option v-for="muscle in library.muscles" :key="muscle.id" :value="muscle.id">{{ muscle.name }}</option>
+          </select>
+          <select v-model="equipmentFilter" aria-label="Filter by equipment">
+            <option value="">All equipment</option>
+            <option v-for="equipment in library.equipment" :key="equipment.id" :value="equipment.id">{{ equipment.name }}</option>
+          </select>
+          <select v-model="sourceFilter" aria-label="Filter custom exercises">
+            <option value="all">All exercises</option><option value="default">Built-in</option><option value="custom">Custom</option>
+          </select>
+        </div>
+
         <button
           v-for="exercise in pickerResults"
           :key="exercise.id"
@@ -427,6 +481,7 @@ async function save() {
           <span class="exercise-glyph">{{ exercise.name.charAt(0) }}</span>
           <span>
             <strong>{{ exercise.name }}</strong>
+            <em v-if="exercise.isCustom" class="custom-badge">Custom</em>
             <small>
               {{ exercise.muscles.find((m) => m.role === 'Primary')?.muscleName || exercise.category || 'Exercise' }}
               <template v-if="exercise.equipmentName"> - {{ exercise.equipmentName }}</template>

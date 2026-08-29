@@ -74,9 +74,9 @@ public sealed class RoutineService(IAppDbContext db, IClock clock)
     }
 
     /// <summary>
-    /// Replaces the routine's exercises and set templates. Children are rebuilt rather
-    /// than diffed, which keeps ordering unambiguous; workout history is unaffected
-    /// because sessions snapshot their own copies.
+    /// Updates the tracked routine aggregate in place. Keeping existing child rows avoids
+    /// delete/reinsert races while workout history remains unaffected because sessions
+    /// snapshot their own copies.
     /// </summary>
     public async Task<Result<RoutineDto>> UpdateAsync(
         Guid ownerId,
@@ -95,8 +95,7 @@ public sealed class RoutineService(IAppDbContext db, IClock clock)
         routine.FolderId = request.FolderId;
         routine.UpdatedAt = clock.UtcNow;
 
-        db.RoutineExercises.RemoveRange(routine.Exercises);
-        routine.Exercises = BuildExercises(request.Exercises);
+        ApplyExercises(routine, request.Exercises);
 
         await db.SaveChangesAsync(ct);
         return await GetAsync(ownerId, routine.Id, ct);
@@ -352,12 +351,16 @@ public sealed class RoutineService(IAppDbContext db, IClock clock)
     {
         var query = db.Routines
             .Where(x => x.Id == routineId && x.OwnerId == ownerId)
-            .Include(x => x.Folder)
-            .Include(x => x.Exercises.OrderBy(e => e.Order)).ThenInclude(x => x.Exercise)
             .Include(x => x.Exercises).ThenInclude(x => x.Sets.OrderBy(s => s.Order))
             .AsQueryable();
 
-        if (asNoTracking) query = query.AsNoTracking();
+        if (asNoTracking)
+        {
+            query = query
+                .Include(x => x.Folder)
+                .Include(x => x.Exercises.OrderBy(e => e.Order)).ThenInclude(x => x.Exercise)
+                .AsNoTracking();
+        }
         return await query.FirstOrDefaultAsync(ct);
     }
 
@@ -432,6 +435,60 @@ public sealed class RoutineService(IAppDbContext db, IClock clock)
                 Type = set.Type
             }).ToList()
         }).ToList();
+
+    private void ApplyExercises(Routine routine, List<SaveRoutineExerciseRequest> requested)
+    {
+        var existingExercises = routine.Exercises.OrderBy(x => x.Order).ToList();
+
+        for (var index = 0; index < requested.Count; index++)
+        {
+            var source = requested[index];
+            var exercise = index < existingExercises.Count
+                ? existingExercises[index]
+                : new RoutineExercise { Id = Guid.NewGuid(), RoutineId = routine.Id };
+
+            if (index >= existingExercises.Count) routine.Exercises.Add(exercise);
+
+            exercise.ExerciseId = source.ExerciseId;
+            exercise.Order = index;
+            exercise.RestSeconds = source.RestSeconds;
+            exercise.Notes = source.Notes?.Trim() ?? "";
+            exercise.SupersetGroup = source.SupersetGroup;
+            exercise.SupersetKind = source.SupersetGroup is null ? SupersetKind.None : source.SupersetKind;
+
+            var requestedSets = source.Sets ?? [];
+            var existingSets = exercise.Sets.OrderBy(x => x.Order).ToList();
+
+            for (var setIndex = 0; setIndex < requestedSets.Count; setIndex++)
+            {
+                var setSource = requestedSets[setIndex];
+                var set = setIndex < existingSets.Count
+                    ? existingSets[setIndex]
+                    : new RoutineSetTemplate { Id = Guid.NewGuid(), RoutineExerciseId = exercise.Id };
+
+                if (setIndex >= existingSets.Count) exercise.Sets.Add(set);
+
+                set.Order = setIndex;
+                set.TargetReps = setSource.TargetReps;
+                set.TargetRepsMax = setSource.TargetRepsMax;
+                set.TargetWeight = setSource.TargetWeight;
+                set.Type = setSource.Type;
+            }
+
+            foreach (var removedSet in existingSets.Skip(requestedSets.Count))
+            {
+                exercise.Sets.Remove(removedSet);
+                db.RoutineSetTemplates.Remove(removedSet);
+            }
+        }
+
+        foreach (var removedExercise in existingExercises.Skip(requested.Count))
+        {
+            db.RoutineSetTemplates.RemoveRange(removedExercise.Sets);
+            routine.Exercises.Remove(removedExercise);
+            db.RoutineExercises.Remove(removedExercise);
+        }
+    }
 
     /// <summary>Produces "Name Copy", "Name Copy 2", ... so duplicates stay distinguishable.</summary>
     private async Task<string> UniqueCopyNameAsync(Guid ownerId, string sourceName, CancellationToken ct)

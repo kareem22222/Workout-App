@@ -20,8 +20,8 @@ import { api } from '@/lib/api'
 import { useSessionStore } from '@/stores/session'
 import { useWorkoutStore } from '@/stores/workout'
 import { useLibraryStore } from '@/stores/library'
-import { formatDuration, formatWeight, setTypeLabel, setTypeName, weightUnitLabel } from '@/lib/format'
-import type { Exercise, WorkoutExercise, WorkoutSet } from '@/lib/types'
+import { displayToKg, formatDuration, formatWeight, kgToDisplay, setTypeLabel, setTypeName, weightUnitLabel } from '@/lib/format'
+import type { Exercise, OverloadSuggestion, WorkoutExercise, WorkoutSet } from '@/lib/types'
 
 const session = useSessionStore()
 const workouts = useWorkoutStore()
@@ -30,8 +30,13 @@ const router = useRouter()
 
 const showExercisePicker = ref(false)
 const search = ref('')
+const muscleFilter = ref('')
+const equipmentFilter = ref('')
+const sourceFilter = ref<'all' | 'default' | 'custom'>('all')
 const notice = ref<string | null>(null)
 const finishing = ref(false)
+const suggestions = ref<Record<string, OverloadSuggestion | null>>({})
+const recentExerciseIds = ref<string[]>(JSON.parse(localStorage.getItem('recentExercises') ?? '[]'))
 
 const unit = computed(() => weightUnitLabel(session.weightUnit))
 const workout = computed(() => workouts.workout)
@@ -41,9 +46,16 @@ const availableExercises = computed(() => {
   const term = search.value.trim().toLowerCase()
   const present = new Set(workout.value?.exercises.map((exercise) => exercise.exerciseId) ?? [])
 
-  return library.exercises.filter(
-    (exercise) => !present.has(exercise.id) && exercise.name.toLowerCase().includes(term),
-  )
+  return library.exercises
+    .filter((exercise) => {
+      const haystack = [exercise.name, exercise.equipmentName, exercise.category, ...exercise.muscles.map((muscle) => muscle.muscleName)].join(' ').toLowerCase()
+      return !present.has(exercise.id)
+        && haystack.includes(term)
+        && (!muscleFilter.value || exercise.muscles.some((muscle) => muscle.muscleId === muscleFilter.value))
+        && (!equipmentFilter.value || exercise.equipmentId === equipmentFilter.value)
+        && (sourceFilter.value === 'all' || exercise.isCustom === (sourceFilter.value === 'custom'))
+    })
+    .sort((a, b) => recentExerciseIds.value.indexOf(b.id) - recentExerciseIds.value.indexOf(a.id) || a.name.localeCompare(b.name))
 })
 
 const restLabel = computed(() => formatDuration(workouts.restSecondsLeft))
@@ -51,7 +63,11 @@ const restLabel = computed(() => formatDuration(workouts.restSecondsLeft))
 onMounted(async () => {
   workouts.startTicking()
   if (!workout.value) await workouts.loadActive()
-  if (library.exercises.length === 0) await library.loadExercises()
+  await Promise.all([
+    library.exercises.length === 0 ? library.loadExercises() : Promise.resolve(),
+    library.loadReference(),
+  ])
+  await loadSuggestions()
 })
 
 onBeforeUnmount(() => {
@@ -111,8 +127,38 @@ async function toggleComplete(exercise: WorkoutExercise, set: WorkoutSet) {
 
 function addExercise(exercise: Exercise) {
   workouts.addExercise(exercise)
+  recentExerciseIds.value = [exercise.id, ...recentExerciseIds.value.filter((id) => id !== exercise.id)].slice(0, 12)
+  localStorage.setItem('recentExercises', JSON.stringify(recentExerciseIds.value))
   search.value = ''
   showExercisePicker.value = false
+  void loadSuggestion(exercise.id)
+}
+
+async function loadSuggestion(exerciseId: string) {
+  try {
+    const suggestion = await api.tools.overload(exerciseId)
+    suggestions.value[exerciseId] = suggestion.action === 'NotEnoughData' ? null : suggestion
+  } catch {
+    suggestions.value[exerciseId] = null
+  }
+}
+
+async function loadSuggestions() {
+  await Promise.all((workout.value?.exercises ?? []).map((exercise) => loadSuggestion(exercise.exerciseId)))
+}
+
+function useSuggestion(exercise: WorkoutExercise) {
+  const suggestion = suggestions.value[exercise.exerciseId]
+  if (!suggestion?.suggestedWeightKg) return
+  exercise.sets.filter((set) => !set.completed && set.type !== 'Warmup').forEach((set) => (set.weight = suggestion.suggestedWeightKg!))
+  workouts.queueSave()
+  notice.value = `Applied ${formatWeight(suggestion.suggestedWeightKg, session.weightUnit, true)} to unfinished work sets.`
+}
+
+function setDisplayWeight(set: WorkoutSet, event: Event) {
+  const value = Number((event.target as HTMLInputElement).value)
+  set.weight = displayToKg(Number.isFinite(value) ? value : 0, session.weightUnit)
+  workouts.queueSave()
 }
 
 function removeExercise(exercise: WorkoutExercise) {
@@ -183,12 +229,19 @@ async function finish() {
     return
   }
 
-  if (
-    workouts.completedSets < workouts.totalSets &&
-    !window.confirm('Some sets are not complete. They will be discarded. Finish anyway?')
-  ) {
-    return
-  }
+  const completedWorkSets = workout.value?.exercises.flatMap((exercise) => exercise.sets)
+    .filter((set) => set.completed && set.type !== 'Warmup') ?? []
+  const summary = [
+    `Finish ${workout.value?.title}?`,
+    '',
+    `${workout.value?.exercises.length ?? 0} exercises`,
+    `${completedWorkSets.length} working sets`,
+    `${completedWorkSets.reduce((sum, set) => sum + set.reps, 0)} reps`,
+    `${formatWeight(workouts.localVolume, session.weightUnit, true)} total volume`,
+    workouts.completedSets < workouts.totalSets ? '' : null,
+    workouts.completedSets < workouts.totalSets ? 'Incomplete sets will be discarded.' : null,
+  ].filter((line) => line !== null).join('\n')
+  if (!window.confirm(summary)) return
 
   finishing.value = true
 
@@ -261,6 +314,12 @@ async function startEmpty() {
 
     <main class="workout-content">
       <p v-if="notice" class="form-error" role="status">{{ notice }}</p>
+      <div v-if="workouts.syncState === 'conflict'" class="sync-conflict" role="alert">
+        <span>{{ workouts.syncMessage }}</span>
+        <button class="btn btn-quiet" :disabled="!workouts.serverConflict" @click="workouts.reloadServerVersion()">
+          Reload server version
+        </button>
+      </div>
 
       <label class="workout-note-field">
         <input
@@ -283,6 +342,13 @@ async function startEmpty() {
               {{ exercise.supersetGroup !== null ? `SUPERSET ${exercise.supersetGroup}` : exercise.exerciseType === 'Cardio' ? 'CARDIO' : 'EXERCISE' }}
             </span>
             <h2>{{ exercise.exerciseName }}</h2>
+            <div v-if="suggestions[exercise.exerciseId]" class="overload-tip">
+              <span>
+                Suggested today: <strong>{{ formatWeight(suggestions[exercise.exerciseId]!.suggestedWeightKg!, session.weightUnit, true) }}</strong>
+                <small>{{ suggestions[exercise.exerciseId]!.rationale }}</small>
+              </span>
+              <button class="btn btn-quiet" @click="useSuggestion(exercise)">Use suggestion</button>
+            </div>
           </div>
 
           <details class="action-menu exercise-actions">
@@ -375,13 +441,13 @@ async function startEmpty() {
           </button>
 
           <input
-            v-model.number="set.weight"
+            :value="kgToDisplay(set.weight, session.weightUnit)"
             type="number"
             inputmode="decimal"
             min="0"
             step="0.5"
             :aria-label="`Weight in ${unit}`"
-            @change="workouts.queueSave()"
+            @change="setDisplayWeight(set, $event)"
           />
           <input
             v-model.number="set.reps"
@@ -455,6 +521,22 @@ async function startEmpty() {
           <input v-model="search" placeholder="Search exercises" aria-label="Search exercises" autofocus />
         </div>
 
+        <div class="picker-filters">
+          <select v-model="muscleFilter" aria-label="Filter by muscle">
+            <option value="">All muscles</option>
+            <option v-for="muscle in library.muscles" :key="muscle.id" :value="muscle.id">{{ muscle.name }}</option>
+          </select>
+          <select v-model="equipmentFilter" aria-label="Filter by equipment">
+            <option value="">All equipment</option>
+            <option v-for="equipment in library.equipment" :key="equipment.id" :value="equipment.id">{{ equipment.name }}</option>
+          </select>
+          <select v-model="sourceFilter" aria-label="Filter custom exercises">
+            <option value="all">All exercises</option>
+            <option value="default">Built-in</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+
         <button
           v-for="exercise in availableExercises.slice(0, 60)"
           :key="exercise.id"
@@ -464,6 +546,7 @@ async function startEmpty() {
           <span class="exercise-glyph">{{ exercise.name.charAt(0) }}</span>
           <span>
             <strong>{{ exercise.name }}</strong>
+            <em v-if="exercise.isCustom" class="custom-badge">Custom</em>
             <small>
               {{ exercise.muscles.find((m) => m.role === 'Primary')?.muscleName || exercise.category || 'Exercise' }}
               <template v-if="exercise.equipmentName"> - {{ exercise.equipmentName }}</template>

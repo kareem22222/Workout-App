@@ -41,6 +41,7 @@ services:
       Jwt__Issuer: WorkoutTracker
       Jwt__Audience: WorkoutTracker.Web
       Auth__AllowRegistration: ${ALLOW_REGISTRATION:-true}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?ADMIN_EMAIL is required}
       # Container deployment has no separate place to run the EF CLI.
       Database__MigrateOnStartup: "true"
       # Caddy terminates TLS and is the only possible source of requests.

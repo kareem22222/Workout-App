@@ -156,7 +156,7 @@ export const api = {
     stats: (range: ChartRange = '3m', groupBy: 'week' | 'month' = 'week') =>
       http.get<TrainingStats>('/progress/stats', { range, groupBy }),
 
-    muscles: (range: ChartRange = '1m') => http.get<MuscleContribution[]>('/progress/muscles', { range }),
+    muscles: (range = '1m') => http.get<MuscleContribution[]>('/progress/muscles', { range }),
   },
 
   tools: {
@@ -233,6 +233,6 @@ export const api = {
     users: () => http.get<AdminUser[]>('/admin/users'),
     setDisabled: (id: string, isDisabled: boolean) =>
       http.put<void>(`/admin/users/${id}/disabled`, { isDisabled }),
-    info: () => http.get<{ version: string; environment: string; serverTimeUtc: string }>('/admin/info'),
+    info: () => http.get<{ version: string; environment: string; serverTimeUtc: string; databaseHealthy: boolean }>('/admin/info'),
   },
 }

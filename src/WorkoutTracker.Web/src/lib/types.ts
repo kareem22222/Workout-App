@@ -254,6 +254,7 @@ export interface WorkoutSummaryRow {
   completedSets: number
   exerciseCount: number
   exerciseNames: string[]
+  personalRecordCount: number
 }
 
 export interface UpdateWorkoutRequest {
@@ -294,6 +295,14 @@ export interface WorkoutCompletion {
   totalVolume: number
   newRecords: PersonalRecord[]
   muscleBreakdown: MuscleContribution[]
+  improvedExercises?: Array<{
+    exerciseId: string
+    exerciseName: string
+    weightKg: number
+    reps: number
+    previousWeightKg: number
+    previousReps: number
+  }>
 }
 
 // ---------------------------------------------------------------------------------------

@@ -5,4 +5,5 @@
 .env
 .env.prod
 tmp/
+backups/
 .vs/

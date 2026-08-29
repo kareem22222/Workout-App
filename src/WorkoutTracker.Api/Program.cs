@@ -278,7 +278,7 @@ try
     app.MapProgressEndpoints();
     app.MapMeasurementEndpoints();
     app.MapDashboardEndpoints();
-    app.MapDataEndpoints();
+    app.MapDataTransferEndpoints();
     app.MapAdminEndpoints();
 
     // Apply pending EF migrations at boot. Opt-in, because on a developer machine the
@@ -330,9 +330,8 @@ try
         }
     }
 
-    // Ensure the admin role exists so the first registration can be promoted. A database
-    // that is briefly unavailable at boot must not stop the API from starting; the role is
-    // re-checked on the next start.
+    // Ensure the configured operator has the Admin role. Registration order never grants
+    // privileges, and an existing matching account is promoted on every startup.
     try
     {
         using var scope = app.Services.CreateScope();
@@ -344,6 +343,22 @@ try
             {
                 Id = Guid.NewGuid()
             });
+        }
+
+        var adminEmail = builder.Configuration["ADMIN_EMAIL"] ?? builder.Configuration["Auth:AdminEmail"];
+        if (!string.IsNullOrWhiteSpace(adminEmail))
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var admin = await users.FindByEmailAsync(adminEmail.Trim());
+            if (admin is not null && !await users.IsInRoleAsync(admin, AppDbContext.AdminRole))
+            {
+                var promoted = await users.AddToRoleAsync(admin, AppDbContext.AdminRole);
+                if (!promoted.Succeeded)
+                {
+                    Log.Warning("Could not grant the configured admin role: {Errors}",
+                        string.Join(", ", promoted.Errors.Select(error => error.Description)));
+                }
+            }
         }
     }
     catch (Exception exception)

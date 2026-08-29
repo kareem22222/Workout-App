@@ -27,6 +27,9 @@ const takenOn = ref(todayIsoDate())
 const pose = ref<PhotoPose>('Front')
 const weight = ref<number | null>(null)
 const notes = ref('')
+const comparePose = ref<PhotoPose>('Front')
+const beforeId = ref('')
+const afterId = ref('')
 
 const poses: PhotoPose[] = ['Front', 'Side', 'Back']
 
@@ -34,6 +37,9 @@ const poses: PhotoPose[] = ['Front', 'Side', 'Back']
 const maxBytes = 8 * 1024 * 1024
 
 const unit = computed(() => weightUnitLabel(session.weightUnit))
+const comparable = computed(() => photos.value.filter((photo) => photo.pose === comparePose.value))
+const before = computed(() => comparable.value.find((photo) => photo.id === beforeId.value) ?? comparable.value[comparable.value.length - 1] ?? null)
+const after = computed(() => comparable.value.find((photo) => photo.id === afterId.value) ?? comparable.value[0] ?? null)
 
 async function load() {
   loading.value = true
@@ -182,7 +188,23 @@ async function remove(id: string) {
 
     <p v-if="loading" class="small-empty">Loading photos…</p>
 
-    <div v-else-if="photos.length > 0" class="photo-grid">
+    <div v-if="photos.length >= 2" class="photo-compare">
+      <div class="panel-head"><div><span class="eyebrow">COMPARE</span><h3>Then and now</h3></div></div>
+      <div class="filter-grid">
+        <label class="field-label">Pose<select v-model="comparePose"><option v-for="option in poses" :key="option" :value="option">{{ option }}</option></select></label>
+        <label class="field-label">Before<select v-model="beforeId"><option value="">Oldest</option><option v-for="photo in comparable" :key="photo.id" :value="photo.id">{{ photo.takenOn }}</option></select></label>
+        <label class="field-label">After<select v-model="afterId"><option value="">Newest</option><option v-for="photo in comparable" :key="photo.id" :value="photo.id">{{ photo.takenOn }}</option></select></label>
+      </div>
+      <div class="compare-grid">
+        <figure v-for="item in [before, after]" :key="item?.id ?? 'empty'" class="photo-card">
+          <img v-if="item && previews[item.id]" :src="previews[item.id]" :alt="`${item.pose} photo from ${item.takenOn}`" />
+          <span v-else class="photo-placeholder"><Camera :size="20" /></span>
+          <figcaption><strong>{{ item?.takenOn ?? 'Choose a photo' }}</strong></figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div v-if="photos.length > 0" class="photo-grid">
       <figure v-for="photo in photos" :key="photo.id" class="photo-card">
         <img
           v-if="previews[photo.id]"
@@ -199,6 +221,7 @@ async function remove(id: string) {
                 - {{ formatWeight(photo.weightKg, session.weightUnit, true) }}
               </template>
             </small>
+            <small v-if="photo.notes">{{ photo.notes }}</small>
           </span>
           <button class="icon-button danger-text" aria-label="Delete photo" @click="remove(photo.id)">
             <Trash2 :size="15" />

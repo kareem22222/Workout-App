@@ -362,13 +362,26 @@ public sealed class ProgressService(
         string range = "1m",
         CancellationToken ct = default)
     {
-        if (!RangeDays.TryGetValue(range, out var days))
-            return Result<IReadOnlyList<MuscleContributionDto>>.Invalid(nameof(range), "Range must be one of 1m, 3m, 6m, 1y, all.");
+        var normalized = range.ToLowerInvariant();
+        var from = normalized switch
+        {
+            "week" => StartOfWeek(clock.UtcNow),
+            "7d" => clock.UtcNow.AddDays(-7),
+            "30d" or "1m" => clock.UtcNow.AddDays(-30),
+            "3m" => clock.UtcNow.AddDays(-90),
+            "6m" => clock.UtcNow.AddDays(-180),
+            "1y" => clock.UtcNow.AddDays(-365),
+            "all" or "workout" => DateTimeOffset.UnixEpoch,
+            _ => DateTimeOffset.MaxValue
+        };
+        if (from == DateTimeOffset.MaxValue)
+            return Result<IReadOnlyList<MuscleContributionDto>>.Invalid(nameof(range), "Unsupported muscle breakdown period.");
 
-        var from = days is { } window ? clock.UtcNow.AddDays(-window) : DateTimeOffset.UnixEpoch;
+        var query = db.WorkoutSessions
+            .Where(x => x.OwnerId == ownerId && x.Status == WorkoutStatus.Completed && x.StartedAt >= from);
+        if (normalized == "workout") query = query.OrderByDescending(x => x.CompletedAt).Take(1);
 
-        var sessions = await db.WorkoutSessions
-            .Where(x => x.OwnerId == ownerId && x.Status == WorkoutStatus.Completed && x.StartedAt >= from)
+        var sessions = await query
             .Include(x => x.Exercises).ThenInclude(x => x.Sets)
             .AsNoTracking()
             .ToListAsync(ct);

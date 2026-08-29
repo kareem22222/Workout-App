@@ -57,6 +57,11 @@ const exerciseId = computed(() => (typeof route.params.id === 'string' ? route.p
 const unit = computed(() => weightUnitLabel(session.weightUnit))
 
 const chartPoints = computed(() => progress.value?.[metric.value] ?? [])
+const bestWeight = computed(() => Math.max(0, ...(progress.value?.bestWeight.map((point) => point.value) ?? [])))
+const bestReps = computed(() => Math.max(0, ...(progress.value?.maxReps.map((point) => point.value) ?? [])))
+const bestOneRepMax = computed(() => Math.max(0, ...(progress.value?.estimatedOneRepMax.map((point) => point.value) ?? [])))
+const primaryMuscle = computed(() => exercise.value?.muscles.find((muscle) => muscle.role === 'Primary')?.muscleName ?? null)
+const secondaryMuscles = computed(() => exercise.value?.muscles.filter((muscle) => muscle.role === 'Secondary').map((muscle) => muscle.muscleName) ?? [])
 
 /** Reps are a count, so only weight-derived metrics carry a unit label. */
 const chartUnit = computed(() => (metric.value === 'maxReps' ? 'reps' : unit.value))
@@ -131,7 +136,18 @@ async function saveNote() {
     <p v-if="loading" class="small-empty">Loading…</p>
 
     <template v-if="exercise">
+      <div class="exercise-meta">
+        <span v-if="primaryMuscle"><small>Primary</small><strong>{{ primaryMuscle }}</strong></span>
+        <span><small>Secondary</small><strong>{{ secondaryMuscles.join(', ') || '—' }}</strong></span>
+        <span><small>Equipment</small><strong>{{ exercise.equipmentName || 'None' }}</strong></span>
+      </div>
       <p v-if="exercise.instructions" class="exercise-instructions">{{ exercise.instructions }}</p>
+
+      <section class="stat-grid exercise-bests">
+        <article class="stat-card"><div><strong>{{ formatWeight(bestWeight, session.weightUnit, true) }}</strong><span>Best weight</span></div></article>
+        <article class="stat-card"><div><strong>{{ bestReps }}</strong><span>Best reps</span></div></article>
+        <article class="stat-card"><div><strong>{{ formatWeight(bestOneRepMax, session.weightUnit, true) }}</strong><span>Estimated 1RM</span></div></article>
+      </section>
 
       <section v-if="suggestion && suggestion.action !== 'NotEnoughData'" class="panel suggestion-panel">
         <div class="panel-head">

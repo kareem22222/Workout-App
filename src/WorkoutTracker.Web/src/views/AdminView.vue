@@ -10,7 +10,7 @@ import type { AdminUser } from '@/lib/types'
 const session = useSessionStore()
 
 const users = ref<AdminUser[]>([])
-const info = ref<{ version: string; environment: string; serverTimeUtc: string } | null>(null)
+const info = ref<{ version: string; environment: string; serverTimeUtc: string; databaseHealthy: boolean } | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 
@@ -63,6 +63,10 @@ async function toggleDisabled(user: AdminUser) {
     <section v-if="info" class="settings-section">
       <span class="folder-head">DEPLOYMENT</span>
       <div class="setting-row">
+        <span><strong>Database</strong><small>Connectivity check</small></span>
+        <span :class="info.databaseHealthy ? 'status-good' : 'danger-text'">{{ info.databaseHealthy ? 'Healthy' : 'Unavailable' }}</span>
+      </div>
+      <div class="setting-row">
         <span><strong>Version</strong><small>API assembly version</small></span>
         <span>{{ info.version }}</span>
       </div>
@@ -88,7 +92,7 @@ async function toggleDisabled(user: AdminUser) {
             <template v-if="user.isDisabled"> - disabled</template>
           </strong>
           <small>
-            {{ user.email }} · {{ user.workoutCount }} workouts
+            {{ user.email }} · joined {{ formatDate(user.createdAt, { month: 'short', day: 'numeric', year: 'numeric' }) }} · {{ user.workoutCount }} workouts
             <template v-if="user.lastWorkoutAt"> · last {{ formatDate(user.lastWorkoutAt) }}</template>
           </small>
         </span>

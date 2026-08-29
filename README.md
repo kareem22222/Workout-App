@@ -62,8 +62,9 @@ needed for local development.
 
 **5. Create your account**
 
-Register from the login screen. The first account to register is automatically granted the
-`Admin` role, which unlocks the admin screen at `/admin`.
+Set `ADMIN_EMAIL` before starting the API, then register that exact address. The matching
+account receives the `Admin` role; registration order never grants privileges. An existing
+matching account is promoted on the next API start.
 
 ## Deploy to a single host
 
@@ -73,14 +74,14 @@ the app and its API share one origin and CORS is never involved.
 
 ```bash
 cp deploy/.env.prod.example .env.prod
-# fill in POSTGRES_PASSWORD, JWT_KEY, WORKOUT_DOMAIN, ACME_EMAIL
+# fill in POSTGRES_PASSWORD, JWT_KEY, ADMIN_EMAIL, WORKOUT_DOMAIN, ACME_EMAIL
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
 Point an A record at the host before starting so Caddy can provision a certificate. To
-check things over plain HTTP by IP first, set `WORKOUT_DOMAIN=:80`. Register the first
-account immediately — it receives the `Admin` role — then set `ALLOW_REGISTRATION=false`
-and re-run the command to close sign-up.
+check things over plain HTTP by IP first, set `WORKOUT_DOMAIN=:80`. Register the account
+matching `ADMIN_EMAIL`, then set `ALLOW_REGISTRATION=false` and re-run the command to close
+sign-up. Existing accounts can continue to log in.
 
 Only Caddy publishes ports. Postgres and the API are reachable on the internal Docker
 network alone, which is what makes `Proxy__TrustForwardedHeaders` safe to enable: the proxy
@@ -120,6 +121,7 @@ variables. See `.env.example` for the full list:
 | `Jwt__Key` | Signing key, minimum 32 characters. Generate with `openssl rand -base64 48`. |
 | `Cors__AllowedOrigins__0` | Exact frontend origin. Wildcards are rejected because the refresh cookie requires credentials. |
 | `Auth__AllowRegistration` | Set to `false` to make the deployment invite-only. |
+| `ADMIN_EMAIL` | Exact account email that receives the Admin role at registration or API startup. |
 | `Storage__MediaRoot` | Directory for private progress photos. Use a mounted volume. |
 
 ## Security notes
@@ -137,27 +139,62 @@ variables. See `.env.example` for the full list:
   endpoint after an ownership re-check.
 - Authentication endpoints are rate limited and return generic credential errors.
 
+## Build and CI
+
+Run the same production gates locally from the repository root:
+
+```powershell
+dotnet restore WorkoutTracker.slnx
+dotnet build WorkoutTracker.slnx --configuration Release /warnaserror
+cd src/WorkoutTracker.Web
+npm ci
+npm run typecheck
+npm run build
+```
+
+`.github/workflows/build.yml` runs the backend warning-as-error build and the frontend
+TypeScript/production build for pushes and pull requests. Any failed command fails CI.
+
 ## Offline behaviour
 
 The service worker caches the app shell and read-only reference data only; user-owned data
 is always fetched from the network so nothing private is served stale. The active workout
-and any pending mutations are mirrored into IndexedDB. Set ids are generated client-side,
-which makes replay idempotent, and each session carries a version so a stale offline write
-is rejected with a conflict instead of overwriting newer server data.
+and pending mutations are mirrored into IndexedDB. Queued writes retain the version read
+from the server. A stale replay stops with a visible conflict and can be discarded only by
+explicitly loading the newer server version.
 
 ## Backups
 
-`GET /api/export/json` produces a complete, schema-versioned export of a single user's
-data, and CSV exports are available per dataset. These are user conveniences, not a backup
-strategy: configure automated PostgreSQL backups (for example Neon's snapshots or a
-scheduled `pg_dump`) before relying on the app, and verify a restore at least once.
+JSON/CSV exports in Settings let each user retain their own data, but they are not a
+database backup. Install PostgreSQL client tools, set `DATABASE_URL` outside the repository,
+and run:
+
+```powershell
+$env:DATABASE_URL = 'Host=localhost;Port=5432;Database=workouttracker;Username=workout;Password=...'
+.\scripts\backup-postgres.ps1
+```
+
+Backups are written to the ignored `backups/` directory as PostgreSQL custom-format dumps.
+Copy them to encrypted storage on another machine or provider. Schedule the command daily,
+retain several generations, and monitor failures. Managed-provider snapshots complement
+these dumps; they do not replace a portable backup that has been restore-checked.
+
+Restore into a verified target database with the API stopped:
+
+```powershell
+$env:DATABASE_URL = 'Host=localhost;Port=5432;Database=workouttracker;Username=workout;Password=...'
+.\scripts\restore-postgres.ps1 -BackupFile .\backups\workouttracker-20260829-020000.dump -Force
+```
+
+`-Force` is required because restore cleans and replaces matching objects. Restore private
+progress-photo files from the `media-data` backup separately, then start the API and verify
+`/health`, sign-in, workout history, and photo access.
 
 ## Known follow-up work
 
-- Automated tests were intentionally skipped for this pass. The spec's testing strategy
-  (domain unit tests, cross-user authorization integration tests, and an E2E smoke test of
-  register → routine → workout → history) remains outstanding. CI currently builds and
-  type-checks only.
+- Automated tests were intentionally excluded from this phase. CI performs warning-as-error
+  backend builds plus Vue TypeScript and production builds, but automated behavioral
+  coverage remains a known limitation.
 - Friends/sharing (Epics 32-33) is deliberately unimplemented; everything is private, which
   is the spec's stated default until an explicit privacy model exists.
 - The muscle summary is the ranked textual breakdown the spec asks for; a graphical body

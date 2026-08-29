@@ -123,9 +123,11 @@ function clearFilters() {
           <small>
             {{ Math.round(workout.durationSeconds / 60) }} min ·
             {{ workout.completedSets }} sets ·
+            {{ workout.exerciseCount }} exercises ·
             {{ formatVolume(workout.totalVolume, session.weightUnit) }} {{ unit }}
           </small>
           <small class="muted">{{ workout.exerciseNames.slice(0, 3).join(', ') }}</small>
+          <small v-if="workout.personalRecordCount > 0" class="history-pr-count">{{ workout.personalRecordCount }} personal {{ workout.personalRecordCount === 1 ? 'record' : 'records' }}</small>
         </span>
         <ChevronRight :size="18" />
       </RouterLink>

@@ -6,10 +6,12 @@ import { api } from '@/lib/api'
 import { ApiError } from '@/lib/http'
 import { useSessionStore } from '@/stores/session'
 import {
+  displayToKg,
   formatDateTime,
   formatDuration,
   formatVolume,
   formatWeight,
+  kgToDisplay,
   setTypeName,
   weightUnitLabel,
 } from '@/lib/format'
@@ -99,6 +101,11 @@ function removeSet(exerciseIndex: number, setId: string) {
   if (!exercise || exercise.sets.length <= 1) return
   if (!window.confirm('Delete this set?')) return
   exercise.sets = exercise.sets.filter((set) => set.id !== setId)
+}
+
+function setDisplayWeight(set: { weight: number }, event: Event) {
+  const value = Number((event.target as HTMLInputElement).value)
+  set.weight = displayToKg(Number.isFinite(value) ? value : 0, session.weightUnit)
 }
 
 async function removeWorkout() {
@@ -204,7 +211,7 @@ async function removeWorkout() {
           <span class="set-type-label">{{ setTypeName(set.type) }}</span>
 
           <template v-if="editing">
-            <input v-model.number="set.weight" type="number" min="0" step="0.5" :aria-label="`Weight in ${unit}`" />
+            <input :value="kgToDisplay(set.weight, session.weightUnit)" type="number" min="0" step="0.5" :aria-label="`Weight in ${unit}`" @change="setDisplayWeight(set, $event)" />
             <input v-model.number="set.reps" type="number" min="0" aria-label="Repetitions" />
             <input v-model.number="set.rpe" type="number" min="1" max="10" step="0.5" placeholder="-" aria-label="RPE" />
             <button

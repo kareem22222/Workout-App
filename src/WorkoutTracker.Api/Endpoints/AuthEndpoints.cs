@@ -58,7 +58,11 @@ public static class AuthEndpoints
         CancellationToken ct)
     {
         // Allows the deployment to be locked down to the intended small group (spec 14).
-        if (!configuration.GetValue("Auth:AllowRegistration", true))
+        var registrationSetting = configuration["ALLOW_REGISTRATION"];
+        var registrationAllowed = bool.TryParse(registrationSetting, out var parsed)
+            ? parsed
+            : configuration.GetValue("Auth:AllowRegistration", true);
+        if (!registrationAllowed)
             return TypedResults.Problem(detail: "Registration is disabled.", statusCode: 403, title: "Forbidden");
 
         var displayName = request.DisplayName?.Trim() ?? "";
@@ -87,9 +91,13 @@ public static class AuthEndpoints
             return TypedResults.ValidationProblem(errors);
         }
 
-        // The first account to register becomes the operator, so the admin surface is
-        // reachable without seeding credentials (spec 12.1).
-        if (users.Users.Count() == 1) await users.AddToRoleAsync(user, AppDbContext.AdminRole);
+        // Admin access is explicit. Registration order must never grant privileges.
+        var adminEmail = configuration["ADMIN_EMAIL"] ?? configuration["Auth:AdminEmail"];
+        if (!string.IsNullOrWhiteSpace(adminEmail) &&
+            string.Equals(email, adminEmail.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            await users.AddToRoleAsync(user, AppDbContext.AdminRole);
+        }
 
         // Create defaults immediately so the client never sees a half-configured account.
         await settings.GetOrCreateSettingsAsync(user.Id, ct);
